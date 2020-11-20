@@ -107,10 +107,8 @@
     1. `git merge --abort`
     2. `git merge 分支名`
 
-
-
-
-
+## 删除远程不需要的分支
+- `git push orgin --delete 分支名`
 
 
 
