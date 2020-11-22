@@ -1,8 +1,8 @@
 # **源码分析**
 
 ***源码版本***
-> org.springframework.boot  
-> 2.1.7.RELEASE
+> **org.springframework.boot**  
+> **2.1.7.RELEASE**
 
 ---
 ## **如何启动?**
@@ -56,8 +56,43 @@ spring容器中较为常用的一个扩展点，功能是在容器启动的时�
 - 3种实现方式都需要实现`ApplicationContextInitializer`接口
 - 可以用`@Order`注解决定各个初始化器的优先级，数字越小优先级越高，但`application.properties`中定义的优先于其他方式
 
-## **Spring系统监听器**
-在spring启动过程中，会产生多种事件(Event)，这些事件都继承自**ApplicationEvent**，而对于这些事件，会有多种监听器对事件进行监听，在spring运行的某些节点，spring会发布这些事件，交给对应的监听器处理，而spring的一些功能就是在这些监听器中实现的。
+## **Spring事件监听器**
+**监听器模式:**  
+监听器模式有几个要素: **广播器(Multicaster)**，**事件(Event)**，**监听器(Listener)**，**触发机制**  
+
+其中，广播器、事件、监听器都可以进行一定程度的抽象，  
+一个广播器聚合了多个监听器，这些监听器以集合的形式被添加或删除，  
+当系统运行到某个节点的时候，系统会向广播器发送事件，然后广播器会遍历监听器集合，监听器可以选择感兴趣的事件进行处理(**触发机制**)
+
+在spring启动过程中，会产生多种事件，这些事件都继承自**ApplicationEvent**，而对于这些事件，会有多种监听器对事件进行监听，在spring运行的某些节点，spring会发布这些事件，交给对应的监听器处理，而spring的一些功能就是在这些监听器中实现的。
 
 **入口:**  
 SpringApplication的构造器中，调用`setListeners((Collection) getSpringFactoriesInstances(ApplicationListener.class))`将监听器的实现注入到spring容器中。
+
+**SpringApplicationRunListener:**  
+这个接口相当于spring容器监听器模式中的事件广播器接口，默认spring容器中会有一个实现，是`EventPublishingRunListener`，这个类主要是完成广播事件，产生不同的事件，将事件分发给各个监听器，并且这个类会在构造函数中向spring容器中获取容器中注册的监听器。这个"广播"功能是交给`SimpleApplicationEventMulticaster`来完成的，而"SimpleApplicationEventMulticaster"这个类的获取监听器的功能实现在其父类`AbstractApplicationEventMulticaster`中，其中这里有一个核心方法，方法签名:  
+`Collection<ApplicationListener<?>> getApplicationListeners(
+			ApplicationEvent event, ResolvableType eventType)`:  
+功能是获取对此事件感兴趣的事件监听器，首先这个方法会尝试在缓存中查找有没有内容，假如没有，则遍历所有的事件监听器，逐个调用`supportsEvent(listener, eventType, sourceType)`方法，这个方法作用是判断当前的事件监听器是否支持这个事件，最后把所有支持这个事件的事件监听器缓存起来，方便下一次获取。然后是这个`supportsEvent`方法中，代码片段:
+```java 
+GenericApplicationListener smartListener = (listener instanceof GenericApplicationListener ?
+				(GenericApplicationListener) listener : new GenericApplicationListenerAdapter(listener));
+return (smartListener.supportsEventType(eventType) && smartListener.supportsSourceType(sourceType));
+```  
+这里会将事件监听器封装成`GenericApplicationListener`，这是一个**适配器模式**，从一个事件监听器中解析出泛型类型。只有同时支持处理此事件类型和数据源类型才能被认为是支持的，在这个方法内对`SmartApplicationListener`进行了处理，假如想扩展spring容器的事件监听器，可以继承`SmartApplicationListener`这个类，重写`supportsEventType`方法，指定感兴趣的事件类型，详细扩展方式写在了另外一篇文章中(目前还没开始写。。。)。  
+
+以上交代了spring容器中事件的触发机制，广播器、事件监听器调用流程，在spring容器运行的过程中会产生不同的事件:  
+
+|事件名称|何时发生此事件|
+|:--|:--|
+|failed|在启动过程中如果产生错误时|
+|starting|框架启动时|
+|environmentPrepared|环境准备妥当时(系统属性等加载到容器内)|
+|contextInitializer|上下文准备好时(加载Bean之前)|
+|prepared|应用上下文以创建完毕(Bean尚未加载完成)|
+|stared|Bean以经加载完成，但还没有调用CommandRunner接口时|
+|ready|CommandRunner运行完成之后|  
+
+spring容器中不少地方都可以看到这些事件监听器的调用，比如`run()`方法内try块之前就有一个`listeners.starting()`，表明"框架正在启动"。
+
+
